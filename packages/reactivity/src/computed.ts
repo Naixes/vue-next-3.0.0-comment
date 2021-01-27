@@ -22,36 +22,46 @@ export interface WritableComputedOptions<T> {
 
 class ComputedRefImpl<T> {
   private _value!: T
+  // 默认为true
   private _dirty = true
 
   public readonly effect: ReactiveEffect<T>
 
+  // computed也是一个ref
   public readonly __v_isRef = true;
   public readonly [ReactiveFlags.IS_READONLY]: boolean
 
   constructor(
     getter: ComputedGetter<T>,
     private readonly _setter: ComputedSetter<T>,
+    // 根据是否有setter判断的
     isReadonly: boolean
   ) {
     this.effect = effect(getter, {
+      // lazy（懒更新）：当它依赖数据更新时不会立刻更新，只有自己被调用的时候才更新
       lazy: true,
       scheduler: () => {
+        // _dirty为false时执行
+        // 这里没有做更新操作只是改变了_dirty，get时才会真正更新？？？
         if (!this._dirty) {
           this._dirty = true
+          // 更新
           trigger(toRaw(this), TriggerOpTypes.SET, 'value')
         }
       }
     })
 
+    // 更新标记
     this[ReactiveFlags.IS_READONLY] = isReadonly
   }
 
   get value() {
+    // 更新
     if (this._dirty) {
       this._value = this.effect()
       this._dirty = false
     }
+    // 跟踪
     track(toRaw(this), TrackOpTypes.GET, 'value')
     return this._value
   }
@@ -66,11 +76,13 @@ export function computed<T>(
   options: WritableComputedOptions<T>
 ): WritableComputedRef<T>
 export function computed<T>(
+  // 接收函数或者option，函数就是getter，对象就是getter和setter
   getterOrOptions: ComputedGetter<T> | WritableComputedOptions<T>
 ) {
   let getter: ComputedGetter<T>
   let setter: ComputedSetter<T>
 
+  // 获取参数中的getter和setter
   if (isFunction(getterOrOptions)) {
     getter = getterOrOptions
     setter = __DEV__
@@ -83,9 +95,11 @@ export function computed<T>(
     setter = getterOrOptions.set
   }
 
+  // 实例化
   return new ComputedRefImpl(
     getter,
     setter,
+    // 是否有setter
     isFunction(getterOrOptions) || !getterOrOptions.set
   ) as any
 }

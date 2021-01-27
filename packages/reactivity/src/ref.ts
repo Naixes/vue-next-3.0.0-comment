@@ -19,9 +19,11 @@ export interface Ref<T = any> {
 export type ToRefs<T = any> = { [K in keyof T]: Ref<T[K]> }
 
 const convert = <T extends unknown>(val: T): T =>
+  // 值为对象时进行响应化
   isObject(val) ? reactive(val) : val
 
 export function isRef<T>(r: Ref<T> | unknown): r is Ref<T>
+// 判断是否ref
 export function isRef(r: any): r is Ref {
   return Boolean(r && r.__v_isRef === true)
 }
@@ -31,6 +33,7 @@ export function ref<T extends object>(
 ): T extends Ref ? T : Ref<UnwrapRef<T>>
 export function ref<T>(value: T): Ref<UnwrapRef<T>>
 export function ref<T = any>(): Ref<T | undefined>
+// 创建ref
 export function ref(value?: unknown) {
   return createRef(value)
 }
@@ -44,24 +47,33 @@ export function shallowRef(value?: unknown) {
   return createRef(value, true)
 }
 
+// ref类
 class RefImpl<T> {
   private _value: T
 
   public readonly __v_isRef = true
 
+  // private直接声明，ts提供的简化代码的方式
   constructor(private _rawValue: T, private readonly _shallow = false) {
+    // convert：响应化
+    // 如果值为对象并且非shallow就会被响应化
     this._value = _shallow ? _rawValue : convert(_rawValue)
   }
 
   get value() {
+    // 跟踪
+    // this一般都是对象，当把ref作为reactive的属性用的时候会被响应化，所以这里要toRow
     track(toRaw(this), TrackOpTypes.GET, 'value')
     return this._value
   }
 
   set value(newVal) {
+    // 判断是否改变
     if (hasChanged(toRaw(newVal), this._rawValue)) {
       this._rawValue = newVal
+      // 更新并且响应化
       this._value = this._shallow ? newVal : convert(newVal)
+      // trigger
       trigger(toRaw(this), TriggerOpTypes.SET, 'value', newVal)
     }
   }
@@ -71,13 +83,16 @@ function createRef(rawValue: unknown, shallow = false) {
   if (isRef(rawValue)) {
     return rawValue
   }
+  // 实例化
   return new RefImpl(rawValue, shallow)
 }
 
+// trigger依赖
 export function triggerRef(ref: Ref) {
   trigger(ref, TriggerOpTypes.SET, 'value', __DEV__ ? ref.value : void 0)
 }
 
+// 将ref转为value
 export function unref<T>(ref: T): T extends Ref<infer V> ? V : T {
   return isRef(ref) ? (ref.value as any) : ref
 }
