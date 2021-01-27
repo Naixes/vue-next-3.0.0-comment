@@ -76,9 +76,11 @@ export const isPromise = <T = any>(val: unknown): val is Promise<T> => {
 }
 
 export const objectToString = Object.prototype.toString
+// 实际上就是调用toString方法
 export const toTypeString = (value: unknown): string =>
   objectToString.call(value)
 
+// 在toString方法返回的[object Object]上面截取出Object
 export const toRawType = (value: unknown): string => {
   return toTypeString(value).slice(8, -1)
 }

@@ -35,6 +35,7 @@ const enum TargetType {
   COLLECTION = 2
 }
 
+// 将原生类型进行归类：COMMON，COLLECTION，INVALID
 function targetTypeMap(rawType: string) {
   switch (rawType) {
     case 'Object':
@@ -50,24 +51,32 @@ function targetTypeMap(rawType: string) {
   }
 }
 
+// 获取target类型：判断是否跳过或不可扩展，是返回TargetType.INVALID类型
 function getTargetType(value: Target) {
   return value[ReactiveFlags.SKIP] || !Object.isExtensible(value)
     ? TargetType.INVALID
-    : targetTypeMap(toRawType(value))
+    : // toRawType截取toString后的一部分，即类型
+      // targetTypeMap将返回的类型进行归类：COMMON，COLLECTION，INVALID
+      targetTypeMap(toRawType(value))
 }
 
 // only unwrap nested ref
 type UnwrapNestedRefs<T> = T extends Ref ? T : UnwrapRef<T>
 
 export function reactive<T extends object>(target: T): UnwrapNestedRefs<T>
+// reactive函数：实质创建的是一个对应对象对应类型的proxy对象
 export function reactive(target: object) {
   // if trying to observe a readonly proxy, return the readonly version.
+  // 判断是否已经被readonly api处理过，处理过直接返回
   if (target && (target as Target)[ReactiveFlags.IS_READONLY]) {
     return target
   }
+  // 创建响应式对象，实际创建的是一个对应对象对应类型的proxy对象
+  // reactive，shallowReactive，readonly都会使用这个函数创建对象，最大的区别就是处理函数不一样
   return createReactiveObject(
     target,
     false,
+    // proxy需要接收的一些处理函数
     mutableHandlers,
     mutableCollectionHandlers
   )
@@ -107,6 +116,7 @@ export type DeepReadonly<T> = T extends Builtin
                   ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
                   : Readonly<T>
 
+// readonly api
 export function readonly<T extends object>(
   target: T
 ): DeepReadonly<UnwrapNestedRefs<T>> {
@@ -139,6 +149,7 @@ function createReactiveObject(
   baseHandlers: ProxyHandler<any>,
   collectionHandlers: ProxyHandler<any>
 ) {
+  // target只接受对象，因为要进行代理
   if (!isObject(target)) {
     if (__DEV__) {
       console.warn(`value cannot be made reactive: ${String(target)}`)
@@ -148,26 +159,35 @@ function createReactiveObject(
   // target is already a Proxy, return it.
   // exception: calling readonly() on a reactive object
   if (
+    // ReactiveFlags.RAW：标记对象是否已经是一个响应式对象（Proxy），是的话直接返回，第一次执行的时候target并没有这个属性的
+    // 例外：调用这个函数的函数是readonly并且target是响应式对象
     target[ReactiveFlags.RAW] &&
     !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
   ) {
     return target
   }
   // target already has corresponding Proxy
+  // readonlyMap和reactiveMap是weakmap，用来存储所有响应式对象
   const proxyMap = isReadonly ? readonlyMap : reactiveMap
+  // 判断是否已经存在这个响应式对象，存在直接返回
+  // 当多次响应化同一个对象时，后面会直接返回第一次生成的对象
   const existingProxy = proxyMap.get(target)
   if (existingProxy) {
     return existingProxy
   }
   // only a whitelist of value types can be observed.
+  // 获取判断和归类后的类型，返回INVALID时直接返回
   const targetType = getTargetType(target)
   if (targetType === TargetType.INVALID) {
     return target
   }
+  // new Proxy的过程不会修改原始对象
   const proxy = new Proxy(
     target,
+    // 根据不同的归类类型使用不同的处理函数
     targetType === TargetType.COLLECTION ? collectionHandlers : baseHandlers
   )
+  // 存储生成好的代理对象
   proxyMap.set(target, proxy)
   return proxy
 }

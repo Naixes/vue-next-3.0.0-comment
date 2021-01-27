@@ -28,6 +28,7 @@ const toShallow = <T extends unknown>(value: T): T => value
 const getProto = <T extends CollectionTypes>(v: T): any =>
   Reflect.getPrototypeOf(v)
 
+// 返回值
 function get(
   target: MapTypes,
   key: unknown,
@@ -36,15 +37,22 @@ function get(
 ) {
   // #1772: readonly(reactive(Map)) should return readonly + reactive version
   // of the value
+  // 获取真正的对象非proxy
   target = (target as any)[ReactiveFlags.RAW]
+  // 确保获得真正的对象和key
   const rawTarget = toRaw(target)
   const rawKey = toRaw(key)
   if (key !== rawKey) {
+    // key和rawKey不一样，key是proxy，执行跟踪key
     !isReadonly && track(rawTarget, TrackOpTypes.GET, key)
   }
+  // 执行跟踪rawKey
   !isReadonly && track(rawTarget, TrackOpTypes.GET, rawKey)
+  // 获取map对象rawTarget的has，还有get，set等方法
   const { has } = getProto(rawTarget)
+  // 返回toReadonly | toShallow | toReactive
   const wrap = isReadonly ? toReadonly : isShallow ? toShallow : toReactive
+  // 判断是否有值，有值获调用target的取值并进行相应的包装
   if (has.call(rawTarget, key)) {
     return wrap(target.get(key))
   } else if (has.call(rawTarget, rawKey)) {
@@ -53,21 +61,27 @@ function get(
 }
 
 function has(this: CollectionTypes, key: unknown, isReadonly = false): boolean {
+  // 获取到真正的值
   const target = (this as any)[ReactiveFlags.RAW]
   const rawTarget = toRaw(target)
   const rawKey = toRaw(key)
+  // 执行跟踪key
   if (key !== rawKey) {
     !isReadonly && track(rawTarget, TrackOpTypes.HAS, key)
   }
   !isReadonly && track(rawTarget, TrackOpTypes.HAS, rawKey)
+  // 调用target的has
   return key === rawKey
     ? target.has(key)
     : target.has(key) || target.has(rawKey)
 }
 
 function size(target: IterableCollections, isReadonly = false) {
+  // 获取到真正的值
   target = (target as any)[ReactiveFlags.RAW]
+  // 执行跟踪
   !isReadonly && track(toRaw(target), TrackOpTypes.ITERATE, ITERATE_KEY)
+  // 调用target的size
   return Reflect.get(target, 'size', target)
 }
 
@@ -83,24 +97,32 @@ function add(this: SetTypes, value: unknown) {
   return result
 }
 
+// this不是一个参数只是this的类型声明，编译后只有两个参数，ts特性
 function set(this: MapTypes, key: unknown, value: unknown) {
   value = toRaw(value)
+  // 这里会进入get，因为会触发获取属性__v_raw
   const target = toRaw(this)
   const { has, get } = getProto(target)
 
+  // 判断key是否存在
   let hadKey = has.call(target, key)
   if (!hadKey) {
     key = toRaw(key)
+    // 判断转换过row的key是否存在
     hadKey = has.call(target, key)
   } else if (__DEV__) {
     checkIdentityKeys(target, has, key)
   }
 
+  // 获取旧值
   const oldValue = get.call(target, key)
+  // 执行set
   const result = target.set(key, value)
   if (!hadKey) {
+    // 执行trigger，没有就ADD
     trigger(target, TriggerOpTypes.ADD, key, value)
   } else if (hasChanged(value, oldValue)) {
+    // 执行trigger，有就SET
     trigger(target, TriggerOpTypes.SET, key, value, oldValue)
   }
   return result
@@ -299,6 +321,7 @@ iteratorMethods.forEach(method => {
 })
 
 function createInstrumentationGetter(isReadonly: boolean, shallow: boolean) {
+  // 判断shallow和readonly
   const instrumentations = shallow
     ? shallowInstrumentations
     : isReadonly
@@ -310,6 +333,7 @@ function createInstrumentationGetter(isReadonly: boolean, shallow: boolean) {
     key: string | symbol,
     receiver: CollectionTypes
   ) => {
+    // 特殊key的读取
     if (key === ReactiveFlags.IS_REACTIVE) {
       return !isReadonly
     } else if (key === ReactiveFlags.IS_READONLY) {
@@ -319,16 +343,21 @@ function createInstrumentationGetter(isReadonly: boolean, shallow: boolean) {
     }
 
     return Reflect.get(
+      // 判断instrumentations是否有key
       hasOwn(instrumentations, key) && key in target
-        ? instrumentations
-        : target,
+        ? // 有的话被instrumentations代理
+          instrumentations
+        : // 没有的话才从target上面获取
+          target,
       key,
       receiver
     )
   }
 }
 
+// reative函数传入的CollectionHandlers
 export const mutableCollectionHandlers: ProxyHandler<CollectionTypes> = {
+  // 只有get，因为使用map操作时都是执行map.xxx，作为map的代理这些操作都会触发get方法所以只需要get方法就可以了
   get: createInstrumentationGetter(false, false)
 }
 
