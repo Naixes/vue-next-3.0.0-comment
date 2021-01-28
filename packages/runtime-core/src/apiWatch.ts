@@ -74,9 +74,10 @@ export interface WatchOptions<Immediate = boolean> extends WatchOptionsBase {
 export type WatchStopHandle = () => void
 
 // Simple effect.
+// 执行doWatch，将函数和选项传过去
 export function watchEffect(
   effect: WatchEffect,
-  options?: WatchOptionsBase
+  options?: WatchOptionsBase // immediate deep flush onTrack onTrigger
 ): WatchStopHandle {
   return doWatch(effect, null, options)
 }
@@ -115,6 +116,7 @@ export function watch<
 ): WatchStopHandle
 
 // implementation
+// 执行doWatch，将函数，cb和选项传过去
 export function watch<T = any>(
   source: WatchSource<T> | WatchSource<T>[],
   cb: WatchCallback<T>,
@@ -161,6 +163,8 @@ function doWatch(
   }
 
   let getter: () => any
+  // 判断是否ref
+  // watchEffect 传进来的source是一个函数不会是ref
   const isRefSource = isRef(source)
   if (isRefSource) {
     getter = () => (source as Ref).value
@@ -181,23 +185,34 @@ function doWatch(
         }
       })
   } else if (isFunction(source)) {
+    // watch source是函数，也会执行到这里
+    // watchEffect 会执行到这里，watchEffect 没有callback，对于 watchEffect 传的函数既是 getter 又是 callback
     if (cb) {
       // getter with cb
+      // 赋值getter
       getter = () =>
+        // 执行函数并错误处理
         callWithErrorHandling(source, instance, ErrorCodes.WATCH_GETTER)
     } else {
       // no cb -> simple effect
+      // watchEffect 会执行到这里
+      // 赋值getter：主要是执行source函数
       getter = () => {
+        // 判断当前组件是否卸载
         if (instance && instance.isUnmounted) {
+          // 在setup中的watchEffect第一次执行时instance已经创建，但此时还没有渲染组件也没有卸载组件，直接返回
           return
         }
         if (cleanup) {
           cleanup()
         }
+        // 执行函数并错误处理（try catch）
         return callWithErrorHandling(
           source,
           instance,
+          // 给不同的 effect getter 调用时会定义不同的 ErrorCodes，用来标识错误，快速定位
           ErrorCodes.WATCH_CALLBACK,
+          // 处理函数数组
           [onInvalidate]
         )
       }
@@ -207,12 +222,18 @@ function doWatch(
     __DEV__ && warnInvalidSource(source)
   }
 
+  // watch时传了callback和deep时，getter的赋值
   if (cb && deep) {
+    // 保存之前的getter
     const baseGetter = getter
+    // 赋值getter
+    // traverse：遍历baseGetter的返回值
     getter = () => traverse(baseGetter())
   }
 
+  // 声明cleanup
   let cleanup: () => void
+  // 声明onInvalidate：处理不正确的函数
   const onInvalidate: InvalidateCbRegistrator = (fn: () => void) => {
     cleanup = runner.options.onStop = () => {
       callWithErrorHandling(fn, instance, ErrorCodes.WATCH_CLEANUP)
@@ -221,6 +242,7 @@ function doWatch(
 
   // in SSR there is no need to setup an actual effect, and it should be noop
   // unless it's eager
+  // ssr
   if (__NODE_JS__ && isInSSRComponentSetup) {
     if (!cb) {
       getter()
@@ -234,25 +256,32 @@ function doWatch(
     return NOOP
   }
 
+  // 赋值oldValue，source是数组时赋值为[]，否者赋值为初始化空对象
   let oldValue = isArray(source) ? [] : INITIAL_WATCHER_VALUE
+  // 声明job函数：执行runner和cb
   const job: SchedulerJob = () => {
     if (!runner.active) {
       return
     }
     if (cb) {
       // watch(source, cb)
+      // runner就是传入的函数包装的effect
+      // 执行runner
       const newValue = runner()
       if (deep || isRefSource || hasChanged(newValue, oldValue)) {
         // cleanup before running cb again
+        // 在第二次runner之前cleanup
         if (cleanup) {
           cleanup()
         }
+        // 执行cb
         callWithAsyncErrorHandling(cb, instance, ErrorCodes.WATCH_CALLBACK, [
           newValue,
           // pass undefined as the old value when it's changed for the first time
           oldValue === INITIAL_WATCHER_VALUE ? undefined : oldValue,
           onInvalidate
         ])
+        // 赋值oldValue
         oldValue = newValue
       }
     } else {
@@ -265,24 +294,35 @@ function doWatch(
   // it is allowed to self-trigger (#1727)
   job.allowRecurse = !!cb
 
+  // 声明scheduler：实际上是包装了job
   let scheduler: (job: () => any) => void
+  // 赋值scheduler
+  // flush指定什么时候执行函数：sync post pre，相对于render函数来说，默认pre
   if (flush === 'sync') {
+    // 同步的
     scheduler = job
   } else if (flush === 'post') {
+    // 延后的
+    // queuePostRenderEffect：调度流程
     scheduler = () => queuePostRenderEffect(job, instance && instance.suspense)
   } else {
     // default: 'pre'
+    // 默认pre
+    // 之前的
     scheduler = () => {
+      // 实例不存在或已经被挂载
       if (!instance || instance.isMounted) {
         queuePreFlushCb(job)
       } else {
         // with 'pre' option, the first call must happen before
         // the component is mounted so it is called synchronously.
+        // pre时，第一次调用必须在组件挂载之前，所以是同步的
         job()
       }
     }
   }
 
+  // 声明runner：effect包装过的getter，过程中会执行getter
   const runner = effect(getter, {
     lazy: true,
     onTrack,
@@ -290,21 +330,28 @@ function doWatch(
     scheduler
   })
 
+  // 记录组件实例上面所有的Effect
   recordInstanceBoundEffect(runner)
 
   // initial run
+  // 初次调用，即声明时调用的doWatch
   if (cb) {
     if (immediate) {
+      // immediate：立即执行job，job中执行了callback
       job()
     } else {
+      // oldValue：执行下一次runner前的值，watch的cb中的旧值就是这个
       oldValue = runner()
     }
   } else if (flush === 'post') {
     queuePostRenderEffect(runner, instance && instance.suspense)
   } else {
+    // 执行runner
+    // 对应到watchEffect就是立即执行传入的函数
     runner()
   }
 
+  // 返回一个关闭watch的函数
   return () => {
     stop(runner)
     if (instance) {
