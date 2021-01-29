@@ -695,7 +695,69 @@ function doWatch(
 
 #### effect
 
-包含track和trigger部分
+##### track和trigger
+
+##### trackStack的使用场景
+
+```ts
+// effect.ts
+...
+let shouldTrack = true
+const trackStack: boolean[] = []
+
+// 案例场景：
+// setup(){
+//   const state = reactive({
+//     name: 'sin'
+//   })
+//   const name = state.name + '1'
+//   ...
+// }
+// 如果setup中使用到了reactive的变量，但是setup只执行一次，为了避免setup也被加入到依赖重复执行，提供了函数pauseTracking中止tracking
+// 在component render的时候会使用到
+// runtime-core中的component.ts中的setupStatefulComponent函数，call setup()部分
+// 流程如下：
+// 默认shouldTrack = true
+// 调用setup时pauseTracking，push了true，shouldTrack = false，即[true]
+// 执行到watchEffect时enableTracking，push了false，shouldTrack = true，即[true, false]
+// watchEffect执行完之后resetTracking，pop了false，shouldTrack = false（pop的值）
+// 此时继续执行setup，shouldTrack也还是保持之前的false终止状态
+
+// shouldTrack设为false
+export function pauseTracking() {
+  trackStack.push(shouldTrack)
+  shouldTrack = false
+}
+
+// shouldTrack设为true
+export function enableTracking() {
+  // trackStack中push，shouldTrack
+  // shouldTrack全局变量，默认true
+  trackStack.push(shouldTrack)
+  shouldTrack = true
+}
+
+// pop出最后一个设为当前的值
+export function resetTracking() {
+  const last = trackStack.pop()
+  shouldTrack = last === undefined ? true : last
+}
+...
+```
+
+##### callWithErrorHandling及onInvalidate
+
+##### scheduler
+
+执行顺序
+
+sync 在数据更新时同步执行
+
+pre/watchEffect 取决于代码位置
+
+render 渲染
+
+post 在这里可以做html的更新
 
 # vue-next
 

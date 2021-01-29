@@ -203,6 +203,7 @@ function doWatch(
           // 在setup中的watchEffect第一次执行时instance已经创建，但此时还没有渲染组件也没有卸载组件，直接返回
           return
         }
+        // 在第二次getter之前cleanup，cleanup就是执行onInvalidate传进来的fn
         if (cleanup) {
           cleanup()
         }
@@ -212,7 +213,13 @@ function doWatch(
           instance,
           // 给不同的 effect getter 调用时会定义不同的 ErrorCodes，用来标识错误，快速定位
           ErrorCodes.WATCH_CALLBACK,
-          // 处理函数数组
+          // 失效函数数组，作为参数传递到source函数中
+          // 案例：
+          // watchEffect((onInvalidate) => {
+          //   console.log(state.name);
+          //   // onInvalidate接收的函数会在第二次执行本函数之前执行，如果在本函数中处理了一些异步操作，可以在onInvalidate中取消，避免数据变动第二次执行本函数时，第一次未返回的结果对本次执行的影响，因为在第二次执行之前会先执行onInvalidate
+          //   onInvalidate(() => {})
+          // })
           [onInvalidate]
         )
       }
@@ -231,10 +238,11 @@ function doWatch(
     getter = () => traverse(baseGetter())
   }
 
-  // 声明cleanup
+  // 声明cleanup：会在watchEffect接收到的函数第二次执行之前执行以及在组件卸载之前执行
   let cleanup: () => void
-  // 声明onInvalidate：处理不正确的函数
+  // 声明onInvalidate：赋值onStop和cleanup
   const onInvalidate: InvalidateCbRegistrator = (fn: () => void) => {
+    // 在runner.options.onStop中注册函数，这个函数会调用传进来的函数fn
     cleanup = runner.options.onStop = () => {
       callWithErrorHandling(fn, instance, ErrorCodes.WATCH_CLEANUP)
     }
@@ -294,7 +302,7 @@ function doWatch(
   // it is allowed to self-trigger (#1727)
   job.allowRecurse = !!cb
 
-  // 声明scheduler：实际上是包装了job
+  // 声明scheduler（调度函数）：，实际上是包装了job
   let scheduler: (job: () => any) => void
   // 赋值scheduler
   // flush指定什么时候执行函数：sync post pre，相对于render函数来说，默认pre
@@ -312,6 +320,7 @@ function doWatch(
     scheduler = () => {
       // 实例不存在或已经被挂载
       if (!instance || instance.isMounted) {
+        // 调用queueCb
         queuePreFlushCb(job)
       } else {
         // with 'pre' option, the first call must happen before
@@ -351,8 +360,9 @@ function doWatch(
     runner()
   }
 
-  // 返回一个关闭watch的函数
+  // 返回一个清理watch的函数
   return () => {
+    // 会执行cleanup和effect.options.onStop设置effect.active = false
     stop(runner)
     if (instance) {
       remove(instance.effects!, runner)

@@ -66,8 +66,10 @@ export function callWithErrorHandling(
 ) {
   let res
   try {
+    // 执行函数
     res = args ? fn(...args) : fn()
   } catch (err) {
+    // 处理错误
     handleError(err, instance, type)
   }
   return res
@@ -104,23 +106,31 @@ export function handleError(
 ) {
   const contextVNode = instance ? instance.vnode : null
   if (instance) {
+    // 获取父级
     let cur = instance.parent
     // the exposed instance is the render proxy to keep it consistent with 2.x
     const exposedInstance = instance.proxy
     // in production the hook receives only the error code
     const errorInfo = __DEV__ ? ErrorTypeStrings[type] : type
     while (cur) {
+      // 补充：
+      // vue2中有一个叫ErrorCapturn的生命周期函数
+      // vue3中也可以引入onErrorCapturn
+      // ErrorCapturn(() => {}) 这个会挂载到cur.ec上面
       const errorCapturedHooks = cur.ec
       if (errorCapturedHooks) {
         for (let i = 0; i < errorCapturedHooks.length; i++) {
+          // 执行errorCapturedHooks并且直接返回
           if (errorCapturedHooks[i](err, exposedInstance, errorInfo)) {
             return
           }
         }
       }
+      // 循环寻找所有父级
       cur = cur.parent
     }
     // app-level handling
+    // 在组件中没有找到的情况下会继续在app中寻找errorHandler
     const appErrorHandler = instance.appContext.config.errorHandler
     if (appErrorHandler) {
       callWithErrorHandling(
