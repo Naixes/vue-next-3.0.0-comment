@@ -180,6 +180,16 @@ export function resetTracking() {
 //     name: [activeEffect] // dep：effects，name是key
 //   }
 // }
+
+// const obj = {a: 1}
+// const state = reactive(obj)
+
+// targetMap = {
+//   {a: 1}:depsMap {
+//     a:dep [effectFn]
+//   }
+// }
+
 export function track(target: object, type: TrackOpTypes, key: unknown) {
   // shouldTrack为false或当前effect未定义时直接返回
   if (!shouldTrack || activeEffect === undefined) {

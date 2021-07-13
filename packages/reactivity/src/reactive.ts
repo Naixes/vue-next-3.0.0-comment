@@ -149,7 +149,7 @@ function createReactiveObject(
   baseHandlers: ProxyHandler<any>,
   collectionHandlers: ProxyHandler<any>
 ) {
-  // target只接受对象，因为要进行代理
+  // target只接受对象或数组，因为要进行代理
   if (!isObject(target)) {
     if (__DEV__) {
       console.warn(`value cannot be made reactive: ${String(target)}`)
@@ -176,7 +176,7 @@ function createReactiveObject(
     return existingProxy
   }
   // only a whitelist of value types can be observed.
-  // 获取判断和归类后的类型，返回INVALID时直接返回
+  // 判断数据是否可以被代理，获取判断和归类后的类型，返回INVALID时直接返回
   const targetType = getTargetType(target)
   if (targetType === TargetType.INVALID) {
     return target
