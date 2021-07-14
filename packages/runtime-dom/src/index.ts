@@ -29,6 +29,8 @@ let renderer: Renderer<Element> | HydrationRenderer
 
 let enabledHydration = false
 
+//NOTE: 动态加载执行render这样可以import  可以保证tree shake
+//延时创建渲染器对象，可以根据对应的配置项
 function ensureRenderer() {
   return renderer || (renderer = createRenderer<Node, Element>(rendererOptions))
 }
@@ -50,7 +52,15 @@ export const hydrate = ((...args) => {
   ensureHydrationRenderer().hydrate(...args)
 }) as RootHydrateFunction
 
+/**
+ * NOTE: 入口函数
+ * import { createApp } from 'vue'
+ * import App from './app'
+ * const app = createApp(App)
+ * app.mount('#app')
+ */
 export const createApp = ((...args) => {
+  // 创建app实例
   const app = ensureRenderer().createApp(...args)
 
   if (__DEV__) {
@@ -58,10 +68,12 @@ export const createApp = ((...args) => {
   }
 
   const { mount } = app
+  // 重写mount方法，每个平台不一样
   app.mount = (containerOrSelector: Element | string): any => {
     const container = normalizeContainer(containerOrSelector)
     if (!container) return
     const component = app._component
+    //判断是否传入了render与template，来初始化模板
     if (!isFunction(component) && !component.render && !component.template) {
       component.template = container.innerHTML
     }

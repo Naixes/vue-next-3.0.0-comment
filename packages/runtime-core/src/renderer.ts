@@ -414,6 +414,7 @@ function baseCreateRenderer(
   createHydrationFns: typeof createHydrationFunctions
 ): HydrationRenderer
 
+//NOTE: implementation 渲染器  内部是具体的逻辑，返回render渲染与createApp
 // implementation
 function baseCreateRenderer(
   options: RendererOptions,
@@ -441,6 +442,11 @@ function baseCreateRenderer(
     insertStaticContent: hostInsertStaticContent
   } = options
 
+  /**
+    NOTE:
+    patch方法，接受新老VNode节点与对应的容器，节点的兄弟节点，父组件，是否压缩优化等等
+    整个patch的过程其实就是对应的VNode深度优先遍历的过程；来构造一颗完整的树
+  */
   // Note: functions inside this closure should use `const xxx = () => {}`
   // style in order to prevent being inlined by minifiers.
   const patch: PatchFn = (
@@ -505,6 +511,18 @@ function baseCreateRenderer(
             optimized
           )
         } else if (shapeFlag & ShapeFlags.COMPONENT) {
+          //组件  组件处理逻辑
+          /**
+            NOTE:内部主要做了以下几件事情：
+            STEP: 1.判断是挂载组件，还是更新组件，挂载调用mountComponent，更新调用updateComponent
+            STEP: 2.对于首次挂载的吗mountedComponent内部，
+                    1.创建组件实例，根据组件VNode
+                    2.设置组件实例，调用setup方法，以及处理options等等、
+                    3.触发并且运行带有副作用的渲染函数，内部会结合使用Effect与render的调用
+            STEP: 3. 渲染真实逻辑
+                      1. 生成对应的subTree，因为组件会是其他子组件的情况，这个过程是调用render的过程，然后生成对应的subTree
+                      2. 把对应的subTree渲染到container中，通过执行对应的patch，然后再次进入到这个函数，如果patch是element，就开始触发渲染任务
+          */
           processComponent(
             n1,
             n2,
@@ -897,6 +915,7 @@ function baseCreateRenderer(
       // (i.e. at the exact same position in the source template)
       if (patchFlag & PatchFlags.FULL_PROPS) {
         // element props contain dynamic keys, full diff needed
+        // 全量修改
         patchProps(
           el,
           n2,
@@ -907,6 +926,7 @@ function baseCreateRenderer(
           isSVG
         )
       } else {
+        // 动态修改
         // class
         // this flag is matched when the element has dynamic class bindings.
         if (patchFlag & PatchFlags.CLASS) {
@@ -1186,6 +1206,8 @@ function baseCreateRenderer(
     }
   }
 
+  //NOTE: 组件处理逻辑
+  //对于整个逻辑主要是处理组件VNode，本质上是去判断子组件是否需要更新，如果需要就递归执行子组件的副作用渲染函数，否则是更新VNode的一些信息就好
   const processComponent = (
     n1: VNode | null,
     n2: VNode,
@@ -1206,6 +1228,7 @@ function baseCreateRenderer(
           optimized
         )
       } else {
+        //TAG:组件初始化挂载
         mountComponent(
           n2,
           container,
@@ -1217,6 +1240,7 @@ function baseCreateRenderer(
         )
       }
     } else {
+      //TAG:更新
       updateComponent(n1, n2, optimized)
     }
   }
@@ -1230,6 +1254,7 @@ function baseCreateRenderer(
     isSVG,
     optimized
   ) => {
+    //STEP: 1. 创建组件实例
     const instance: ComponentInternalInstance = (initialVNode.component = createComponentInstance(
       initialVNode,
       parentComponent,
@@ -1254,6 +1279,7 @@ function baseCreateRenderer(
     if (__DEV__) {
       startMeasure(instance, `init`)
     }
+    //STEP: 2. 设置组件实例
     setupComponent(instance)
     if (__DEV__) {
       endMeasure(instance, `init`)
@@ -1273,6 +1299,7 @@ function baseCreateRenderer(
       return
     }
 
+    //STEP: 3. 设置并且运行带有副作用的渲染函数
     setupRenderEffect(
       instance,
       initialVNode,
@@ -1324,6 +1351,7 @@ function baseCreateRenderer(
     }
   }
 
+  //NOTE:运行带有副作用的render函数
   const setupRenderEffect: SetupRenderEffectFn = (
     instance,
     initialVNode,
@@ -1334,13 +1362,18 @@ function baseCreateRenderer(
     optimized
   ) => {
     // create reactive effect for rendering
+    //NOTE: 创建响应式的副作用渲染函数,当组件内部数据发生变化，会重新执行componentEffect方法内部逻辑，并且挂载到组件实例的update方法上，后续更新执行
     instance.update = effect(function componentEffect() {
       if (!instance.isMounted) {
+        //NOTE: 第一次组件挂载初始化渲染阶段，主要做两件事情
+        //1. 生成对应的subTree
+        //2. 把对应的subTree渲染到container中
         let vnodeHook: VNodeHook | null | undefined
         const { el, props } = initialVNode
         const { bm, m, parent } = instance
 
         // beforeMount hook
+        // 生命周期的调用 beforeMount
         if (bm) {
           invokeArrayFns(bm)
         }
@@ -1353,6 +1386,7 @@ function baseCreateRenderer(
         if (__DEV__) {
           startMeasure(instance, `render`)
         }
+        //TAG:渲染组件生成子树VNode
         const subTree = (instance.subTree = renderComponentRoot(instance))
         if (__DEV__) {
           endMeasure(instance, `render`)
@@ -1376,6 +1410,7 @@ function baseCreateRenderer(
           if (__DEV__) {
             startMeasure(instance, `patch`)
           }
+          //TAG: 把对应的子树渲染到container中，子树可能是element、text、component等
           patch(
             null,
             subTree,
@@ -1388,6 +1423,7 @@ function baseCreateRenderer(
           if (__DEV__) {
             endMeasure(instance, `patch`)
           }
+          //保留渲染生成子树的根节点   DOM节点
           initialVNode.el = subTree.el
         }
         // mounted hook
@@ -1415,6 +1451,12 @@ function baseCreateRenderer(
         // updateComponent
         // This is triggered by mutation of component's own state (next: null)
         // OR parent calling processComponent (next: VNode)
+        // NOTE: updateComponent 组件更新的逻辑
+        /**
+        STEP:1 更新组件VNode的节点信息
+        STEP:2 渲染成为新的子树VNode
+        STEP:3 根据新旧子树VNode执行patch逻辑
+        */
         let { next, bu, u, parent, vnode } = instance
         let originNext = next
         let vnodeHook: VNodeHook | null | undefined
@@ -1422,7 +1464,9 @@ function baseCreateRenderer(
           pushWarningContext(next || instance.vnode)
         }
 
+        //next表示下一次更新的新VNode，如果有对应的VNode，就
         if (next) {
+          //更新组件实例的信息，props、vnode指向、el指向等等
           updateComponentPreRender(instance, next, optimized)
         } else {
           next = vnode
@@ -1442,11 +1486,14 @@ function baseCreateRenderer(
         if (__DEV__) {
           startMeasure(instance, `render`)
         }
+        //根据更新后的组件实例渲染新的子树subTree
         const nextTree = renderComponentRoot(instance)
         if (__DEV__) {
           endMeasure(instance, `render`)
         }
+        //缓存旧的subTree
         const prevTree = instance.subTree
+        //更新新的subTree
         instance.subTree = nextTree
 
         // reset refs
@@ -1457,6 +1504,7 @@ function baseCreateRenderer(
         if (__DEV__) {
           startMeasure(instance, `patch`)
         }
+        //根据新老子树VNode来做对应的patch
         patch(
           prevTree,
           nextTree,
@@ -1471,6 +1519,7 @@ function baseCreateRenderer(
         if (__DEV__) {
           endMeasure(instance, `patch`)
         }
+        //缓存更新后的DOM节点
         next.el = nextTree.el
         if (originNext === null) {
           // self-triggered update. In case of HOC, update parent component
@@ -2200,11 +2249,13 @@ function baseCreateRenderer(
   }
 
   const render: RootRenderFunction = (vnode, container) => {
+    // 卸载流程
     if (vnode == null) {
       if (container._vnode) {
         unmount(container._vnode, null, null, true)
       }
     } else {
+      // 创建或更新组件
       patch(container._vnode || null, vnode, container)
     }
     flushPostFlushCbs()
@@ -2233,9 +2284,23 @@ function baseCreateRenderer(
     >)
   }
 
+  /**
+    NOTE: 整个app挂载的执行流程
+
+    STEP: 1.整个应用调用createApp方法生成实例，然后调用mount方法，对于整个App实例的创建，就是一个对应数据与方法的对象创建，
+    调用mount的阶段，首先根据入口组件<App> 创建VNode， 然后触发render函数，整个render的阶段，就是Patch所有Vnode的阶段，当中分为初始化挂载与更新组件的逻辑
+
+    STEP: 2.对于内部patch的阶段，会对不同节点类型有不同的处理逻辑，主要是组件与element，组件就继续执行创建、挂载等等
+  */
   return {
     render,
     hydrate,
+    /**
+      外部调用创建App的方法，
+      const app = createApp(App)
+      app.mount('#app')
+      接受两个参数
+    */
     createApp: createAppAPI(render, hydrate)
   }
 }

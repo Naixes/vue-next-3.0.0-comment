@@ -11,10 +11,13 @@ __DEV__ && initDev()
 
 const compileCache: Record<string, RenderFunction> = Object.create(null)
 
+// compile
 function compileToFunction(
   template: string | HTMLElement,
   options?: CompilerOptions
 ): RenderFunction {
+  // 处理模版
+  // 模版是node
   if (!isString(template)) {
     if (template.nodeType) {
       template = template.innerHTML
@@ -30,6 +33,7 @@ function compileToFunction(
     return cached
   }
 
+  // 模版是选择器
   if (template[0] === '#') {
     const el = document.querySelector(template)
     if (__DEV__ && !el) {
@@ -42,10 +46,12 @@ function compileToFunction(
     template = el ? el.innerHTML : ``
   }
 
+  // 编译模版
   const { code } = compile(
     template,
     extend(
       {
+        // 静态提升
         hoistStatic: true,
         onError(err: CompilerError) {
           if (__DEV__) {
@@ -72,6 +78,7 @@ function compileToFunction(
   // with keys that cannot be mangled, and can be quite heavy size-wise.
   // In the global build we know `Vue` is available globally so we can avoid
   // the wildcard object.
+  // 构建render
   const render = (__GLOBAL__
     ? new Function(code)()
     : new Function('Vue', code)(runtimeDom)) as RenderFunction

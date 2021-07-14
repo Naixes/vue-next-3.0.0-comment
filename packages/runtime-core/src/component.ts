@@ -515,9 +515,14 @@ export function setupComponent(
 
   const { props, children, shapeFlag } = instance.vnode
   const isStateful = shapeFlag & ShapeFlags.STATEFUL_COMPONENT
+  // 初始化
   initProps(instance, props, isStateful, isSSR)
   initSlots(instance, children)
 
+  /**
+   * 通过执行setup(){}  设置有状态的实例相关数据
+   */
+  // 判断是否有状态组件
   const setupResult = isStateful
     ? setupStatefulComponent(instance, isSSR)
     : undefined
@@ -525,6 +530,14 @@ export function setupComponent(
   return setupResult
 }
 
+//设置状态
+/**
+ *  1.设置渲染的上下文代理
+    2. 判断处理setup函数
+    3.完成组件实例的设置
+ * @param instance 
+ * @param isSSR 
+ */
 function setupStatefulComponent(
   instance: ComponentInternalInstance,
   isSSR: boolean
@@ -549,9 +562,12 @@ function setupStatefulComponent(
     }
   }
   // 0. create render proxy property access cache
+  // 创建渲染代理的属性访问缓存
   instance.accessCache = {}
   // 1. create public instance / render proxy
+  // 创建上下文代理
   // also mark it raw so it's never observed
+  // 访问实例上的props、options、data的时候，都可以通过组件实例上的ctx上访问到对应的结果，这就是一个代理的过程
   instance.proxy = new Proxy(instance.ctx, PublicInstanceProxyHandlers)
   if (__DEV__) {
     exposePropsOnRenderContext(instance)
@@ -559,17 +575,21 @@ function setupStatefulComponent(
   // 2. call setup()
   const { setup } = Component
   if (setup) {
+    //如果setup 函数带有参数，那就创建一个setupContext
     const setupContext = (instance.setupContext =
       setup.length > 1 ? createSetupContext(instance) : null)
 
     currentInstance = instance
+    //暂停依赖的收集
     pauseTracking()
+    //执行setup返回结果
     const setupResult = callWithErrorHandling(
       setup,
       instance,
       ErrorCodes.SETUP_FUNCTION,
       [__DEV__ ? shallowReadonly(instance.props) : instance.props, setupContext]
     )
+    //回到上一次的状态
     resetTracking()
     currentInstance = null
 
@@ -590,9 +610,11 @@ function setupStatefulComponent(
         )
       }
     } else {
+      //处理setup执行结果，与组件实例结合，处理对应的返回数据render与state
       handleSetupResult(instance, setupResult, isSSR)
     }
   } else {
+    //完成组件实例的设置
     finishComponentSetup(instance, isSSR)
   }
 }
@@ -659,10 +681,12 @@ function finishComponentSetup(
     }
   } else if (!instance.render) {
     // could be set from setup()
+    // 判断没有render
     if (compile && Component.template && !Component.render) {
       if (__DEV__) {
         startMeasure(instance, `compile`)
       }
+      //缓存render到component中，在线编译模板的情况
       Component.render = compile(Component.template, {
         isCustomElement: instance.appContext.config.isCustomElement,
         delimiters: Component.delimiters
@@ -672,6 +696,7 @@ function finishComponentSetup(
       }
     }
 
+    //挂载render到实例上
     instance.render = (Component.render || NOOP) as InternalRenderFunction
 
     // for runtime-compiled render functions using `with` blocks, the render
@@ -686,6 +711,7 @@ function finishComponentSetup(
   }
 
   // support for 2.x options
+  // 兼容options写法
   if (__FEATURE_OPTIONS_API__) {
     currentInstance = instance
     applyOptions(instance, Component)
