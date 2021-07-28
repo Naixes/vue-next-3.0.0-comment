@@ -1713,6 +1713,18 @@ function baseCreateRenderer(
   }
 
   // can be all-keyed or mixed
+  // dom-diff核心代码
+  // 使用单指针循环，先遍历头部直到不同的节点，再遍历尾部直到不同的节点，然后判断是否遍历完成，完成则进行挂载和删除，否则进行核心逻辑：
+
+// 先遍历新节点生成key-index映射表keyToNewIndexMap
+
+// 根据比较项数量toBePatched，初始化newIndexToOldIndexMap内容都为0
+
+// 遍历旧节点，通过旧节点的key查询映射表，没有就删除旧节点，最后生成一个newIndex-oldIndex+1映射表newIndexToOldIndexMap
+
+// 通过newIndexToOldIndexMap获取最长升序子序列的index集合
+
+// 同时从后向前遍历newch和newIndexToOldIndexMap和index集合，map在index中没有时，对应的ch节点就需要移动，存在就不需要移动，map中0对应的ch为新增节点
   const patchKeyedChildren = (
     c1: VNode[],
     c2: VNodeArrayChildren,
